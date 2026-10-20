@@ -269,7 +269,8 @@ mod tests {
 
         use futures_lite::{AsyncReadExt, AsyncWriteExt};
         use tokio_util::compat::TokioAsyncReadCompatExt;
-        use turmoil::{net::TcpListener, Builder};
+        use turmoil::net::TcpListener;
+        use turmoil::Builder;
 
         let mut sim = Builder::new().simulation_duration(Duration::from_secs(10)).build();
 
