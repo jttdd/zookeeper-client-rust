@@ -3,7 +3,6 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use async_io::Timer;
 use asyncs::select;
 use bytes::buf::BufMut;
 use futures::io::BufReader;
@@ -17,6 +16,7 @@ use tracing::{debug, trace};
 use crate::deadline::Deadline;
 use crate::endpoint::{EndpointRef, IterableEndpoints};
 use crate::net;
+use crate::time::Timer;
 #[cfg(feature = "tls")]
 use crate::tls::TlsClient;
 
@@ -295,6 +295,41 @@ mod tests {
             let conn = connector.connect(endpoint, &mut deadline).await.unwrap();
 
             assert!(conn.command_isro().await.unwrap());
+            Ok(())
+        });
+
+        sim.run()
+    }
+
+    #[cfg(feature = "turmoil")]
+    #[test]
+    fn connector_times_out_on_turmoil_clock() -> turmoil::Result {
+        use std::time::Duration;
+
+        use turmoil::net::TcpListener;
+        use turmoil::Builder;
+
+        use crate::time;
+
+        let timeout = Duration::from_secs(30);
+        let mut sim = Builder::new().simulation_duration(2 * timeout).build();
+
+        sim.host("zk", || async move {
+            let _listener = TcpListener::bind("0.0.0.0:2181").await?;
+            std::future::pending().await
+        });
+
+        sim.client("client", async move {
+            // Held packets never arrive, so only the connect timeout can end the attempt.
+            turmoil::hold("client", "zk");
+            let mut connector = Connector::new();
+            connector.set_timeout(timeout);
+            let endpoint = EndpointRef::new("zk", 2181, false);
+
+            let start = time::now();
+            let err = connector.connect(endpoint, &mut Deadline::never()).await.unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::TimedOut);
+            assert!(time::now() - start >= timeout);
             Ok(())
         });
 
